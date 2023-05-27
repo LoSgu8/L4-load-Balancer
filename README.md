@@ -7,3 +7,5 @@ The load balancer implemented in this project performs the following tasks:
 2. Keeps track of existing connections and assigns the same backend server to the same connection to preserve connection consistency.
 3. Sends new connections to the backend server with the least number of active connections.
 4. Detects when TCP connections are closed and decreases the associated connection counter.
+
+However, due to hash collisions, it is important to note that the load balancer might not guarantee a perfect balance among the backend servers (a new flow might be recognized as an already assigned one) especially with a large amount of flows.
