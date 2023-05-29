@@ -11,8 +11,8 @@
 #define BACKEND3_IDX 4
 #define BACKEND4_IDX 5
 
-#define NB_BACKEND 4
-#define NB_TCP_PORTS 65536
+#define NB_BACKEND 7
+#define NB_HASH_ENTRIES 65535 // 16 bit hash function
 
 const bit<16> TYPE_IPV4 = 0x800;
 const bit<8>  TYPE_TCP  = 6;
@@ -83,7 +83,7 @@ struct metadata {
 }
 
 struct headers {
-    /* TODO 4: Define here the headers structure */
+    /* Headers structure definition */
     ethernet_t  ethernet;
     ipv4_t      ipv4;
     tcp_t       tcp;
@@ -153,13 +153,14 @@ control MyIngress(inout headers hdr,
      * the backend assigned to a connection.
      */
 
-    // Register to find the backend number associated to a connection given the TCP port client side (3 bits are enough for 8 backend)
-    register<bit<3>>(NB_TCP_PORTS) backend_reg;
+    // Register to find the backend number associated to a connection given hash{clientIP, clientPort}.
+    // 3 bits are enough for 7 backend server (0 reserved for not assigned flow)
+    register<bit<3>>(NB_HASH_ENTRIES) backend_reg;
 
     /* Definition of the register where you keep information about
      * the number of connections assigned to a backend
      */
-    // Register that stores the counter (32 bits) of the number of conenctions assigned at each backend
+    // Register that stores the counter (32 bits) of the number of connections assigned at each backend
     register<bit<32>>(NB_BACKEND) nb_connections_reg;
 
     /* Drop action */
@@ -213,7 +214,7 @@ control MyIngress(inout headers hdr,
 
         // ETH: update the src addr with the MAC of the load balancer and the dst addr with the MAC of the client
         hdr.ethernet.srcAddr = srcMac;
-        hdr.ethernet.dstAddr = 0x0a000001;
+        //hdr.ethernet.dstAddr = 0x0a000001; // it should be already set by client ARP
 
         // IP: update the src addr with the IP of the load balancer
         hdr.ipv4.srcAddr = srcIP;
@@ -295,7 +296,15 @@ control MyIngress(inout headers hdr,
                     bit<3> backend_nb; // variable that stores the backend number associated to the current connection (retrieved from backend_reg)
                     bit<32> nb_connections; // variable that temporarily stores the number of connections of a backend (retrieved from nb_connections_reg)
                     
-                    backend_reg.read(backend_nb, (bit<32>)hdr.tcp.srcPort);
+                    // Compute hash and use as it as index to read backend_reg register
+                    bit<32> index;
+
+                    // DEBUG
+                    log_msg("START {}", {hdr.tcp.srcPort});
+
+                    hash(index, HashAlgorithm.crc32, (bit<32>)0, {hdr.ipv4.srcAddr, hdr.tcp.srcPort}, (bit<32>)NB_HASH_ENTRIES);
+
+                    backend_reg.read(backend_nb, index);
 
                     if (backend_nb < 2 || backend_nb > 5) {
                         /* Connection not assigned to a backend */
@@ -310,30 +319,30 @@ control MyIngress(inout headers hdr,
 
                             bit<32> min_nb; // variable that stores the minimum number of connections of a backend
 
-                            nb_connections_reg.read(min_nb, 0);
+                            nb_connections_reg.read(min_nb, 2);
                             meta.assigned_backend = 2;
 
                             nb_connections_reg.read(nb_connections, 3);
                             if (nb_connections < min_nb) {
                                 min_nb = nb_connections;
-                                meta.assigned_backend = 5;
+                                meta.assigned_backend = 3;
                             }
 
-                            nb_connections_reg.read(nb_connections, 2);
+                            nb_connections_reg.read(nb_connections, 4);
                             if (nb_connections < min_nb) {
                                 min_nb = nb_connections;
                                 meta.assigned_backend = 4;
                             }
 
-                            nb_connections_reg.read(nb_connections, 1);
+                            nb_connections_reg.read(nb_connections, 5);
                             if (nb_connections < min_nb) {
                                 min_nb = nb_connections;
-                                meta.assigned_backend = 3;
+                                meta.assigned_backend = 5;
                             }
 
                             /* Assign the backend to the connection and increment the number of connections */
-                            backend_reg.write((bit<32>)hdr.tcp.srcPort, (bit<3>)meta.assigned_backend);
-                            nb_connections_reg.write((bit<32>)(meta.assigned_backend-2), min_nb + 1);
+                            backend_reg.write(index, (bit<3>)meta.assigned_backend);
+                            nb_connections_reg.write((bit<32>)meta.assigned_backend, min_nb + 1);
 
                             vip_to_backend.apply();
 
@@ -351,11 +360,14 @@ control MyIngress(inout headers hdr,
                         /* FIN or RST flags are enabled */
                         if (hdr.tcp.fin == 1 || hdr.tcp.rst == 1) {
 
-                            nb_connections_reg.read(nb_connections, (bit<32>)(backend_nb-2));
+                            // DEBUG
+                            log_msg("STOP {}", {hdr.tcp.srcPort});
+
+                            nb_connections_reg.read(nb_connections, (bit<32>)backend_nb);
 
                             /* Remove the assignment and decrement the number of connections */
-                            backend_reg.write((bit<32>)hdr.tcp.srcPort, 0);
-                            nb_connections_reg.write((bit<32>)(backend_nb-2), nb_connections - 1);
+                            backend_reg.write(index, 0);
+                            nb_connections_reg.write((bit<32>)backend_nb, nb_connections - 1);
                             
                         }
 
