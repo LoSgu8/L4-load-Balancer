@@ -153,7 +153,7 @@ control MyIngress(inout headers hdr,
      * the backend assigned to a connection.
      */
 
-    // Register to find the backend number associated to a connection given hash{clientIP, clientPort}.
+    // Register to find the backend number associated to a connection given hash{srcIp, dstIP, srcPort, dstPort}.
     // 3 bits are enough for 7 backend server (0 reserved for not assigned flow)
     register<bit<3>>(NB_HASH_ENTRIES) backend_reg;
 
@@ -214,7 +214,7 @@ control MyIngress(inout headers hdr,
 
         // ETH: update the src addr with the MAC of the load balancer and the dst addr with the MAC of the client
         hdr.ethernet.srcAddr = srcMac;
-        //hdr.ethernet.dstAddr = 0x0a000001; // it should be already set by client ARP
+        //hdr.ethernet.dstAddr = 0x0a000001; // set by client ARP
 
         // IP: update the src addr with the IP of the load balancer
         hdr.ipv4.srcAddr = srcIP;
@@ -302,7 +302,9 @@ control MyIngress(inout headers hdr,
                     // DEBUG
                     log_msg("START {}", {hdr.tcp.srcPort});
 
-                    hash(index, HashAlgorithm.crc32, (bit<32>)0, {hdr.ipv4.srcAddr, hdr.tcp.srcPort}, (bit<32>)NB_HASH_ENTRIES);
+                    // hash(index, HashAlgorithm.crc32, (bit<32>)0, {hdr.ipv4.srcAddr, hdr.tcp.srcPort}, (bit<32>)NB_HASH_ENTRIES);
+
+                    hash(index, HashAlgorithm.crc32, (bit<32>)0, {hdr.ipv4.srcAddr, hdr.ipv4.dstAddr, hdr.tcp.srcPort, hdr.tcp.dstPort}, (bit<32>)NB_HASH_ENTRIES);
 
                     backend_reg.read(backend_nb, index);
 
