@@ -1,4 +1,4 @@
-# L4 Connection-Aware Load Balancer
+# L4 Connection-Aware Load Balancer implemented in P4
 This is a simple implementation of a Layer 4 (L4) connection-aware load balancer using a P4 switch. The load balancer accepts connections from a client host and maps them to different backend servers based on their IP and port. Backend server information is provided from the controller as table.
 
 ```mermaid
